@@ -10,7 +10,7 @@ import {
   observeElement
 } from "../utils";
 import * as i18n from "../i18n.js";
-import { Modal as bs5Modal } from "bootstrap";
+import bs5Modal from "bootstrap/js/dist/modal.js";
 import { makeIcon } from "../resource/icons";
 import { message } from "./message";
 
@@ -276,6 +276,7 @@ export async function load(content, options = {}) {
   return {
     el: modalElement,
     content: content,
-    options: options
-  };
+    options: options,
+    modalInstance:modalInstance 
+    };
 }

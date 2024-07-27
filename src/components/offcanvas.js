@@ -1,5 +1,6 @@
 import { getOverlapDimensions, genDialogId, triggerEvent, observeElement } from "../utils.js";
-import { Offcanvas as bs5Offcanvas } from "bootstrap";
+import bs5Offcanvas from "bootstrap/js/dist/offcanvas.js";
+
 
 /**
  * Creates an offcanvas element with the given content and options.

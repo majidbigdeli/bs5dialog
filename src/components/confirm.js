@@ -1,7 +1,7 @@
 import { setModalWrapper, replayLock, triggerEvent, genDialogId, observeElement } from "../utils";
 import { makeIcon } from "../resource/icons";
 import * as i18n from "../i18n.js";
-import { Modal as bs5Modal } from "bootstrap";
+import bs5Modal from "bootstrap/js/dist/modal.js";
 
 /**
  * Displays a confirmation modal with the given content and options.

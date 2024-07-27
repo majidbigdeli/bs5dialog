@@ -98,7 +98,7 @@ export function toast(message, options) {
   // toastInstance.show();
 
   if (options.timeout) {
-    debounce(() => {
+    setTimeout(() => {
       hideToast();
     }, options.timeout);
   }
@@ -106,9 +106,9 @@ export function toast(message, options) {
   const hideToast = function () {
     console.log("hidden");
     toastElement.classList.add("bs5-dialog-msg-hide");
-    debounce(() => {
+    setTimeout(() => {
       toastElement.style.display = "none";
-      debounce(() => {
+      setTimeout(() => {
         toastElement.remove();
       }, 500);
     }, 300);
