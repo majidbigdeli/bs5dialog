@@ -430,7 +430,7 @@ export function observeElement(targetElement, options) {
               ) {
                 hasHidden = true;
                 hasRendered = false;
-                options.hidden?.();
+                //options.hidden?.();
               } else {
                 hasHidden = false;
                 if (!hasRendered) {
