@@ -1,117 +1,290 @@
-import { getOverlapDimensions, genDialogId, triggerEvent, observeElement } from "../utils.js";
+import {
+  makeRequest,
+  isUrlOrPath,
+  genDialogId,
+  replayLock,
+  triggerEvent,
+  observeElement
+} from "../utils.js";
+
+import * as i18n from "../i18n.js";
 import bs5Offcanvas from "bootstrap/js/dist/offcanvas.js";
+import { makeIcon } from "../resource/icons";
+import { message } from "./message";
 
-
-/**
- * Creates an offcanvas element with the given content and options.
- * @param {string} content - The content to be displayed in the offcanvas.
- * @param {Object} options - The options for the offcanvas.
- * @param {string} options.title - The title of the offcanvas.
- * @param {string} options.direction - The direction of the offcanvas.
- * @param {string} options.size - The size of the offcanvas.
- * @param {string} options.id - The id of the offcanvas.
- * @param {boolean} options.backdrop - Whether or not to show a backdrop.
- * @param {boolean} options.scroll - Whether or not to allow scrolling.
- * @param {boolean} options.dark - Whether or not to use dark mode.
- * @param {boolean} options.accordion - Whether or not to use accordion mode.
- * @param {string} options.container - The container for the offcanvas.
- * @param {Function} options.onStart - The function to be called when the offcanvas starts.
- * @param {Function} options.onShown - The function to be called when the offcanvas is shown.
- * @param {Function} options.onHidden - The function to be called when the offcanvas is hidden.
- */
-export function offcanvas(content, options = {}) {
+export async function offcanvas(content, options = {}) {
   const defaultOptions = {
     title: "",
-    direction: "start",
+    type: "danger",
+
+    direction: "end",
     size: "",
     id: "",
+
     backdrop: true,
     scroll: true,
     dark: false,
-    accordion: true,
-    container: "",
-    onShown: function () {},
-    onHidden: function () {}
+
+    maximize: false,
+
+    btnOkText: "",
+    btnCancelText: "",
+
+    onShow: null,
+    onShown: null,
+    onHide: null,
+    onHidden: null,
+    onCancel: null,
+
+    isForm: true,
+    onSubmit: null,
+    onSubmitSuccess: r => {},
+    onSubmitError: r => {},
+    onSubmitDone: r => {}
   };
+
   options = { ...defaultOptions, ...options };
 
-  let offcanvasElement;
-  if (options.id && document.getElementById(options.id)) {
-    offcanvasElement = document.getElementById(options.id);
+  // ---------- resolve/create element (اما با "fresh replace" برای جلوگیری از خراب شدن)
+  let el;
+  const existing = options.id ? document.getElementById(options.id) : null;
+
+  if (existing) {
+    // اگر قبلاً instance داشته، dispose
+    const old = bs5Offcanvas.getInstance(existing);
+    if (old) old.dispose();
+
+    // جایگزینی با یک element تازه تا همه listenerهای قبلی پاک شوند
+    el = existing.cloneNode(false);
+    el.setAttribute("id", options.id);
+    existing.replaceWith(el);
   } else {
-    offcanvasElement = document.createElement("div");
+    el = document.createElement("div");
     options.id = options.id || genDialogId();
-    offcanvasElement.setAttribute("id", options.id);
+    el.setAttribute("id", options.id);
   }
-  let prevContainerPanding;
-  const container = document.querySelector(options.container || "body");
-  const accordionDirection = options.direction === "start" ? "left" : options.direction === "end" ? "right" : options.direction || "";
-  observeElement(offcanvasElement, {
+
+  // ---------- load url like modal
+  if (isUrlOrPath(content)) {
+    const apiUrl = content;
+    const res = await makeRequest(apiUrl, "GET");
+    content = res.content;
+
+    if (typeof content === "string" && (content.includes("<!DOCTYPE html>") || content.includes("<html"))) {
+      content = `<iframe src="${apiUrl}" width="100%" height="100%" style="border:0"></iframe>`;
+      options.scroll = false;
+    }
+  }
+
+  // ---------- lifecycle (like load)
+  observeElement(el, {
     created: () => {
-      triggerEvent(offcanvasElement, "bs5:dialog:offcanvas:created", { options: options, el: offcanvasElement });
+      options.onShow?.(el);
+      triggerEvent(el, "bs5:dialog:load:created", { options, el });
     },
     rendered: () => {
-      prevContainerPanding = document.body.style.getPropertyValue("padding-" + accordionDirection);
-      if (options.accordion) {
-        let OverlapDimensions = getOverlapDimensions(offcanvasElement, container);
-        const paddingSize = ["left", "right"].includes(accordionDirection)
-          ? OverlapDimensions.overlapWidth + "px"
-          : OverlapDimensions.overlapHeight + "px";
-        container.style.setProperty("padding-" + accordionDirection, paddingSize);
-      }
-
-      triggerEvent(offcanvasElement, "bs5:dialog:offcanvas:rendered", { options: options, el: offcanvasElement });
-      options.onShown?.(offcanvasElement);
+      options.onShown?.(el);
+      triggerEvent(el, "bs5:dialog:load:rendered", { options, el });
     },
     hidden: () => {
-      if (options.accordion) {
-        container.style.setProperty("padding-" + accordionDirection, prevContainerPanding);
-      }
-      triggerEvent(offcanvasElement, "bs5:dialog:offcanvas:hidden", { options: options, el: offcanvasElement });
-      options.onHidden?.(offcanvasElement);
-    },
-    remove: () => {
-      triggerEvent(offcanvasElement, "bs5:dialog:offcanvas:remove", { options: options, el: offcanvasElement });
+      options.onHidden?.(el);
+      triggerEvent(el, "bs5:dialog:load:hidden", { options, el });
     }
   });
 
-  offcanvasElement.classList.add("offcanvas", "bs5dialog-offcanvas", "offcanvas-" + options.direction);
+  // ---------- offcanvas setup (UNCHANGED behavior)
+  el.className = "";
+  el.classList.add("offcanvas", "bs5dialog-offcanvas", "offcanvas-" + options.direction);
+  el.setAttribute("tabindex", "-1");
+  el.setAttribute("role", "dialog");
 
-  offcanvasElement.setAttribute("tabindex", "-1");
-  offcanvasElement.setAttribute("role", "dialog");
-  if (options.scroll === true || options.scroll === "true") {
-    offcanvasElement.setAttribute("data-bs-scroll", "true");
-  }
+  if (options.scroll) el.setAttribute("data-bs-scroll", "true");
+  else el.removeAttribute("data-bs-scroll");
 
-  offcanvasElement.setAttribute("data-bs-backdrop", options.backdrop);
+  el.setAttribute("data-bs-backdrop", options.backdrop);
+
   if (options.direction === "start" || options.direction === "end") {
-    offcanvasElement.style.width = options.size;
+    el.style.width = options.size || "";
+    el.style.height = "";
   }
   if (options.direction === "top" || options.direction === "bottom") {
-    offcanvasElement.style.height = options.size;
+    el.style.height = options.size || "";
+    el.style.width = "";
   }
 
-  offcanvasElement.innerHTML = `
+  // ---------- template
+  el.innerHTML = `
     <div class="offcanvas-header">
       <h5 class="offcanvas-title">${options.title || ""}</h5>
-      <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#${options.id}" aria-label="Close"></button>
+      <div class="offcanvas-maximize-toggle ms-auto me-2"></div>
+      <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
     </div>
+
     <div class="offcanvas-body">
       ${content}
-    </div>`;
+    </div>
 
-  if (options.dark === true || options.dark === "true") {
-    offcanvasElement.classList.add("text-bg-dark");
-    offcanvasElement.querySelector(".btn-close").classList.add("btn-close-white");
+    <div class="offcanvas-footer d-none p-3 border-top d-flex gap-2">
+      <button type="button" class="btn btn-cancel me-auto">
+        ${options.btnCancelText || i18n.getConfig("cancel")}
+      </button>
+      <button type="button" class="btn btn-ok btn-${options.type}">
+        ${options.btnOkText || i18n.getConfig("save")}
+      </button>
+    </div>
+  `;
+
+  if (options.dark) {
+    el.classList.add("text-bg-dark");
+    el.querySelector(".btn-close")?.classList.add("btn-close-white");
   }
 
-  document.body.appendChild(offcanvasElement);
-  const offcanvasInstance = bs5Offcanvas.getOrCreateInstance(offcanvasElement);
-  offcanvasInstance.toggle();
+  // ---------- maximize icons
+  const iconMin = makeIcon("bs5-minimize", "btn-minimize d-none", "cursor:pointer");
+  const iconMax = makeIcon("bs5-maximize", "btn-maximize", "cursor:pointer");
 
-  return {
-    el: offcanvasElement,
-    content: content,
-    options: options
+  const toggle = el.querySelector(".offcanvas-maximize-toggle");
+  toggle.append(iconMin, iconMax);
+
+  // اگر element تازه ساخته شده و در DOM نیست، اضافه‌اش کن
+  if (!el.isConnected) document.body.appendChild(el);
+
+  // instance مثل کد اصلی
+  const modalInstance = bs5Offcanvas.getOrCreateInstance(el);
+
+  // ---------- onHide (مثل load)
+  el.addEventListener("hide.bs.offcanvas", () => {
+    options.onHide?.(el);
+  });
+
+  // ---------- maximize/fullscreen + برگشت (بدون تغییر transform)
+  const prevSize = { width: el.style.width || "", height: el.style.height || "" };
+
+  const doMaximize = () => {
+    prevSize.width = el.style.width || "";
+    prevSize.height = el.style.height || "";
+
+    el.style.width = "100vw";
+    el.style.height = "100vh";
+
+    iconMax.classList.add("d-none");
+    iconMin.classList.remove("d-none");
+
+    triggerEvent(el, "bs5:dialog:load:maximize", { options });
   };
+
+  const doMinimize = () => {
+    el.style.width = prevSize.width;
+    el.style.height = prevSize.height;
+
+    // اگر جهت افقی است، height را به حالت offcanvas معمول برگردان
+    if (options.direction === "start" || options.direction === "end") {
+      // معمولاً height باید خالی باشد
+      if (!prevSize.height) el.style.height = "";
+    }
+    // اگر جهت عمودی است، width را به حالت offcanvas معمول برگردان
+    if (options.direction === "top" || options.direction === "bottom") {
+      if (!prevSize.width) el.style.width = "";
+    }
+
+    iconMin.classList.add("d-none");
+    iconMax.classList.remove("d-none");
+
+    triggerEvent(el, "bs5:dialog:load:minimize", { options });
+  };
+
+  // فقط وقتی واقعاً باز است اجازه maximize بده (برای اینکه رفتار انیمیشن offcanvas تغییر نکند)
+  const runWhenShown = fn => {
+    if (el.classList.contains("show")) return fn();
+    el.addEventListener("shown.bs.offcanvas", fn, { once: true });
+  };
+
+  iconMax.onclick = () => runWhenShown(doMaximize);
+  iconMin.onclick = () => runWhenShown(doMinimize);
+
+  // اگر از ابتدا maximize خواسته شده، بعد از باز شدن اعمال کن
+  if (options.maximize) {
+    runWhenShown(doMaximize);
+  }
+
+  // ---------- cancel
+  const cancelBtn = el.querySelector(".btn-cancel");
+  cancelBtn?.addEventListener("click", () => {
+    replayLock(cancelBtn);
+    triggerEvent(el, "bs5:dialog:load:cancel", { options });
+    options.onCancel?.();
+    modalInstance.hide();
+  });
+
+  // ---------- form submit like load (کامل)
+  const form = el.querySelector("form");
+  if (options.isForm && form) {
+    const footer = el.querySelector(".offcanvas-footer");
+    const okBtn = el.querySelector(".btn-ok");
+    const submitBtn = form.querySelector('button[type="submit"]');
+
+    footer?.classList.remove("d-none");
+
+    if (submitBtn) {
+      submitBtn.style.display = "none";
+      okBtn.textContent = submitBtn.textContent || okBtn.textContent;
+    }
+
+    form.addEventListener("submit", e => e.preventDefault());
+
+    okBtn.onclick = async e => {
+      e?.preventDefault?.();
+      replayLock(okBtn);
+
+      triggerEvent(el, "bs5:dialog:form:submit", {
+        options,
+        formEl: form,
+        formAction: form.action,
+        formMethod: form.method,
+        formData: new FormData(form)
+      });
+
+      if (typeof options.onSubmit === "function") {
+        options.onSubmit(el);
+      }
+
+      const res = await makeRequest(form.action, form.method, {}, new FormData(form));
+
+      triggerEvent(el, "bs5:dialog:form:submit:complete", {
+        options,
+        formEl: form,
+        formAction: form.action,
+        formMethod: form.method,
+        formData: new FormData(form),
+        submitResult: res
+      });
+
+      options.onSubmitDone?.(res);
+
+      if (res.isSuccess) {
+        triggerEvent(el, "bs5:dialog:form:submit:success", {
+          options,
+          formEl: form,
+          submitResult: res
+        });
+
+        options.onSubmitSuccess?.(res);
+        modalInstance.hide();
+      } else {
+        triggerEvent(el, "bs5:dialog:form:submit:error", {
+          options,
+          formEl: form,
+          submitResult: res
+        });
+
+        options.onSubmitError?.(res);
+        message(res.content);
+      }
+    };
+  }
+
+  // ---------- show (EXACTLY like original)
+  modalInstance.toggle();
+
+  return { el, content, options, modalInstance };
 }
