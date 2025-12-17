@@ -253,3 +253,17 @@
   overflow-y: scroll !important;
   padding-right: unset !important;
 }
+
+.bs5dialog-offcanvas .offcanvas-header{
+  display: flex;
+  align-items: center;
+}
+
+.bs5dialog-offcanvas .offcanvas-actions{
+  margin-inline-start: auto; /* به جای ms-auto (RTL/LTR هوشمند) */
+}
+
+.bs5dialog-offcanvas .offcanvas-maximize-toggle{
+  display: flex;
+  align-items: center;
+}

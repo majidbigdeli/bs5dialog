@@ -12,6 +12,25 @@ import bs5Offcanvas from "bootstrap/js/dist/offcanvas.js";
 import { makeIcon } from "../resource/icons";
 import { message } from "./message";
 
+// --- sizeClassName -> px (برای offcanvas باید اندازه واقعی بدیم)
+function resolveOffcanvasSize(options) {
+  // اگر size مستقیم داده شده، همونو استفاده کن
+  if (options.size && String(options.size).trim()) return options.size;
+
+  // اگر sizeClassName داده شده
+  const cls = (options.sizeClassName || "").toLowerCase();
+
+  // این map رو اگر لازم داری مطابق UI خودت تغییر بده
+  const map = {
+    sm: "420px",
+    md: "600px",
+    lg: "900px",
+    xl: "1200px"
+  };
+
+  return map[cls] || ""; // اگر خالی برگرده، Bootstrap/default CSS تصمیم می‌گیره
+}
+
 export async function offcanvas(content, options = {}) {
   const defaultOptions = {
     title: "",
@@ -19,6 +38,7 @@ export async function offcanvas(content, options = {}) {
 
     direction: "end",
     size: "",
+    sizeClassName: "xl", // ✅ اضافه شد
     id: "",
 
     backdrop: true,
@@ -45,16 +65,17 @@ export async function offcanvas(content, options = {}) {
 
   options = { ...defaultOptions, ...options };
 
-  // ---------- resolve/create element (اما با "fresh replace" برای جلوگیری از خراب شدن)
+  // ✅ اندازه نهایی بر اساس sizeClassName
+  const resolvedSize = resolveOffcanvasSize(options);
+
+  // ---------- resolve/create element (fresh replace)
   let el;
   const existing = options.id ? document.getElementById(options.id) : null;
 
   if (existing) {
-    // اگر قبلاً instance داشته، dispose
     const old = bs5Offcanvas.getInstance(existing);
     if (old) old.dispose();
 
-    // جایگزینی با یک element تازه تا همه listenerهای قبلی پاک شوند
     el = existing.cloneNode(false);
     el.setAttribute("id", options.id);
     existing.replaceWith(el);
@@ -67,16 +88,11 @@ export async function offcanvas(content, options = {}) {
   // ---------- load url like modal
   if (isUrlOrPath(content)) {
     const apiUrl = content;
-    const res = await makeRequest(apiUrl, "GET");
-    content = res.content;
-
-    if (typeof content === "string" && (content.includes("<!DOCTYPE html>") || content.includes("<html"))) {
-      content = `<iframe src="${apiUrl}" width="100%" height="100%" style="border:0"></iframe>`;
-      options.scroll = false;
-    }
+    content = `<iframe src="${apiUrl}" width="100%" height="100%" style="border:0;display:block;"></iframe>`;
+    options.scroll = false; // body پشت offcanvas اسکرول نخوره
   }
 
-  // ---------- lifecycle (like load)
+  // ---------- lifecycle
   observeElement(el, {
     created: () => {
       options.onShow?.(el);
@@ -92,51 +108,63 @@ export async function offcanvas(content, options = {}) {
     }
   });
 
-  // ---------- offcanvas setup (UNCHANGED behavior)
+  // ---------- offcanvas setup
   el.className = "";
   el.classList.add("offcanvas", "bs5dialog-offcanvas", "offcanvas-" + options.direction);
   el.setAttribute("tabindex", "-1");
   el.setAttribute("role", "dialog");
 
   if (options.scroll) el.setAttribute("data-bs-scroll", "true");
-  else el.removeAttribute("data-bs-scroll");
+  else el.setAttribute("data-bs-scroll", "false");
 
-  el.setAttribute("data-bs-backdrop", options.backdrop);
+  el.setAttribute("data-bs-backdrop", options.backdrop ? "true" : "false");
 
+  // ✅ اینجا به جای options.size از resolvedSize استفاده می‌کنیم
   if (options.direction === "start" || options.direction === "end") {
-    el.style.width = options.size || "";
+    el.style.width = resolvedSize || "";
     el.style.height = "";
   }
   if (options.direction === "top" || options.direction === "bottom") {
-    el.style.height = options.size || "";
+    el.style.height = resolvedSize || "";
     el.style.width = "";
   }
 
   // ---------- template
-  el.innerHTML = `
-    <div class="offcanvas-header">
-      <h5 class="offcanvas-title">${options.title || ""}</h5>
-      <div class="offcanvas-maximize-toggle ms-auto me-2"></div>
+el.innerHTML = `
+  <div class="offcanvas-header">
+    <h5 class="offcanvas-title mb-0">${options.title || ""}</h5>
+
+    <div class="offcanvas-actions d-flex align-items-center gap-2">
+      <div class="offcanvas-maximize-toggle"></div>
       <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
     </div>
+  </div>
 
-    <div class="offcanvas-body">
-      ${content}
-    </div>
+  <div class="offcanvas-body">
+    ${content}
+  </div>
+`;
 
-    <div class="offcanvas-footer d-none p-3 border-top d-flex gap-2">
-      <button type="button" class="btn btn-cancel me-auto">
-        ${options.btnCancelText || i18n.getConfig("cancel")}
-      </button>
-      <button type="button" class="btn btn-ok btn-${options.type}">
-        ${options.btnOkText || i18n.getConfig("save")}
-      </button>
-    </div>
-  `;
 
   if (options.dark) {
     el.classList.add("text-bg-dark");
     el.querySelector(".btn-close")?.classList.add("btn-close-white");
+  }
+
+  const body = el.querySelector(".offcanvas-body");
+
+  // ✅ برای iframe فول‌سایز، offcanvas رو flex کن تا height=100% واقعی بشه
+  // (این باعث میشه height=100% iframe درست کار کنه)
+  el.style.display = "flex";
+  el.style.flexDirection = "column";
+  body.style.flex = "1 1 auto";
+  body.style.minHeight = "0";
+
+  if (!options.scroll) {
+    body.style.overflow = "hidden";
+    body.style.padding = "0";
+  } else {
+    body.style.overflow = "auto";
   }
 
   // ---------- maximize icons
@@ -146,18 +174,16 @@ export async function offcanvas(content, options = {}) {
   const toggle = el.querySelector(".offcanvas-maximize-toggle");
   toggle.append(iconMin, iconMax);
 
-  // اگر element تازه ساخته شده و در DOM نیست، اضافه‌اش کن
   if (!el.isConnected) document.body.appendChild(el);
 
-  // instance مثل کد اصلی
   const modalInstance = bs5Offcanvas.getOrCreateInstance(el);
 
-  // ---------- onHide (مثل load)
+  // ---------- onHide
   el.addEventListener("hide.bs.offcanvas", () => {
     options.onHide?.(el);
   });
 
-  // ---------- maximize/fullscreen + برگشت (بدون تغییر transform)
+  // ---------- maximize/fullscreen + restore
   const prevSize = { width: el.style.width || "", height: el.style.height || "" };
 
   const doMaximize = () => {
@@ -174,17 +200,13 @@ export async function offcanvas(content, options = {}) {
   };
 
   const doMinimize = () => {
-    el.style.width = prevSize.width;
-    el.style.height = prevSize.height;
-
-    // اگر جهت افقی است، height را به حالت offcanvas معمول برگردان
+    // ✅ برگشت به resolvedSize (نه فقط prevSize)
     if (options.direction === "start" || options.direction === "end") {
-      // معمولاً height باید خالی باشد
-      if (!prevSize.height) el.style.height = "";
-    }
-    // اگر جهت عمودی است، width را به حالت offcanvas معمول برگردان
-    if (options.direction === "top" || options.direction === "bottom") {
-      if (!prevSize.width) el.style.width = "";
+      el.style.width = prevSize.width || resolvedSize || "";
+      el.style.height = "";
+    } else {
+      el.style.height = prevSize.height || resolvedSize || "";
+      el.style.width = "";
     }
 
     iconMin.classList.add("d-none");
@@ -193,7 +215,6 @@ export async function offcanvas(content, options = {}) {
     triggerEvent(el, "bs5:dialog:load:minimize", { options });
   };
 
-  // فقط وقتی واقعاً باز است اجازه maximize بده (برای اینکه رفتار انیمیشن offcanvas تغییر نکند)
   const runWhenShown = fn => {
     if (el.classList.contains("show")) return fn();
     el.addEventListener("shown.bs.offcanvas", fn, { once: true });
@@ -202,12 +223,9 @@ export async function offcanvas(content, options = {}) {
   iconMax.onclick = () => runWhenShown(doMaximize);
   iconMin.onclick = () => runWhenShown(doMinimize);
 
-  // اگر از ابتدا maximize خواسته شده، بعد از باز شدن اعمال کن
-  if (options.maximize) {
-    runWhenShown(doMaximize);
-  }
+  if (options.maximize) runWhenShown(doMaximize);
 
-  // ---------- cancel
+  // ---------- cancel (تو template فعلاً btn-cancel نداری؛ اگر اضافه کنی کار می‌کند)
   const cancelBtn = el.querySelector(".btn-cancel");
   cancelBtn?.addEventListener("click", () => {
     replayLock(cancelBtn);
@@ -216,7 +234,7 @@ export async function offcanvas(content, options = {}) {
     modalInstance.hide();
   });
 
-  // ---------- form submit like load (کامل)
+  // ---------- form submit (تو template فعلاً footer/btn-ok نداری؛ اگر اضافه کنی کار می‌کند)
   const form = el.querySelector("form");
   if (options.isForm && form) {
     const footer = el.querySelector(".offcanvas-footer");
@@ -225,65 +243,55 @@ export async function offcanvas(content, options = {}) {
 
     footer?.classList.remove("d-none");
 
-    if (submitBtn) {
+    if (submitBtn && okBtn) {
       submitBtn.style.display = "none";
       okBtn.textContent = submitBtn.textContent || okBtn.textContent;
     }
 
     form.addEventListener("submit", e => e.preventDefault());
 
-    okBtn.onclick = async e => {
-      e?.preventDefault?.();
-      replayLock(okBtn);
+    if (okBtn) {
+      okBtn.onclick = async e => {
+        e?.preventDefault?.();
+        replayLock(okBtn);
 
-      triggerEvent(el, "bs5:dialog:form:submit", {
-        options,
-        formEl: form,
-        formAction: form.action,
-        formMethod: form.method,
-        formData: new FormData(form)
-      });
-
-      if (typeof options.onSubmit === "function") {
-        options.onSubmit(el);
-      }
-
-      const res = await makeRequest(form.action, form.method, {}, new FormData(form));
-
-      triggerEvent(el, "bs5:dialog:form:submit:complete", {
-        options,
-        formEl: form,
-        formAction: form.action,
-        formMethod: form.method,
-        formData: new FormData(form),
-        submitResult: res
-      });
-
-      options.onSubmitDone?.(res);
-
-      if (res.isSuccess) {
-        triggerEvent(el, "bs5:dialog:form:submit:success", {
+        triggerEvent(el, "bs5:dialog:form:submit", {
           options,
           formEl: form,
+          formAction: form.action,
+          formMethod: form.method,
+          formData: new FormData(form)
+        });
+
+        options.onSubmit?.(el);
+
+        const res = await makeRequest(form.action, form.method, {}, new FormData(form));
+
+        triggerEvent(el, "bs5:dialog:form:submit:complete", {
+          options,
+          formEl: form,
+          formAction: form.action,
+          formMethod: form.method,
+          formData: new FormData(form),
           submitResult: res
         });
 
-        options.onSubmitSuccess?.(res);
-        modalInstance.hide();
-      } else {
-        triggerEvent(el, "bs5:dialog:form:submit:error", {
-          options,
-          formEl: form,
-          submitResult: res
-        });
+        options.onSubmitDone?.(res);
 
-        options.onSubmitError?.(res);
-        message(res.content);
-      }
-    };
+        if (res.isSuccess) {
+          triggerEvent(el, "bs5:dialog:form:submit:success", { options, formEl: form, submitResult: res });
+          options.onSubmitSuccess?.(res);
+          modalInstance.hide();
+        } else {
+          triggerEvent(el, "bs5:dialog:form:submit:error", { options, formEl: form, submitResult: res });
+          options.onSubmitError?.(res);
+          message(res.content);
+        }
+      };
+    }
   }
 
-  // ---------- show (EXACTLY like original)
+  // ---------- show
   modalInstance.toggle();
 
   return { el, content, options, modalInstance };
